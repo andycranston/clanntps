@@ -1,6 +1,6 @@
 #! /usr/bin/python3
 #
-# @(!--#) @(#) clanntps.py, sversion 0.1.0, fversion 008, 13-june-2021
+# @(!--#) @(#) clanntps.py, sversion 0.1.0, fversion 012, 16-june-2021
 #
 # a NTP server for closed LANS
 #
@@ -82,190 +82,141 @@ def showpacket(bytes):
 
 ##############################################################################
 
-def bytes2text(ba):
-    text = ''
-    
-    for i in range(0, len(ba)):
-        byte = ba[i]
-        text += '{:02X}'.format(byte)
-        
-    return text
+def ntptime():
+    ntp = bytearray(8)
 
-##############################################################################
+    utc = time.time()
 
-def bytes2int(ba):
-    v = 0
-    
-    for i in range(0, len(ba)):
-        v = v << 8
-        b = ba[i]
-        v += b
-    
-    return v
+    utcint = (int(math.floor(utc)) & 0xFFFFFFFF) + 2208988800
 
-##############################################################################
+    ntp[0] = (utcint & 0xFF000000) >> 24
+    ntp[1] = (utcint & 0x00FF0000) >> 16
+    ntp[2] = (utcint & 0x0000FF00) >> 8
+    ntp[3] = (utcint & 0x000000FF)
 
-def int2fourbytes(v):
-    ba = bytearray(4)
-    
-    ba[0] = (v & 0xFF000000) >> 24
-    ba[1] = (v & 0x00FF0000) >> 16
-    ba[2] = (v & 0x0000FF00) >> 8
-    ba[3] = (v & 0x000000FF) >> 0
-    
-    return ba
+    utcfrac = utc - math.floor(utc)
 
-##############################################################################
+    binary = ''
 
-def float2binarystring(f):
-    binarystring = ''
-    negativepower = 1.0
+    for i in range(0, 32):
+        mult2 = 2.0 * utcfrac
 
-    for i in range(0, 16):
-        negativepower = negativepower / 2.0
+        ### print(utcfrac, mult2)
 
-        if f > negativepower:
-            binarystring += '1'
-            f = f - negativepower
+        if mult2 >= 1.0:
+            binary += '1'
         else:
-            binarystring += '0'
+            binary += '0'
 
-    return binarystring
+        utcfrac = mult2 - math.floor(mult2)
 
-##############################################################################
+    i = 0
 
-def binarystring2int(binarystring):
-    v = 0
+    for byte in range(4, 8):
+        v = 0
 
-    for i in range(0, len(binarystring)):
-        v = v * 2
-        if binarystring[i] == '1':
-            v += 1
+        m = 128
 
-    return v
+        for bit in range(0, 8):
+            if binary[i] == '1':
+                v = v + m
+            i +=1
+            m = m // 2
 
-##############################################################################
+        ntp[byte] = v
 
-def ntptimenowbytes():
-        utcnow = time.time()
-        utcsecondsnow = int(math.floor(utcnow))
-        utcfractionnow = utcnow - float(utcsecondsnow)
-        inbinary = float2binarystring(utcfractionnow)
-        
-        bytes = bytearray(8)
-        
-        bytes[0:4] = int2fourbytes(utcsecondsnow + 2208988800)
-        bytes[4] = binarystring2int(inbinary[0:8])
-        bytes[5] = binarystring2int(inbinary[8:16])
-
-        return bytes        
+    return ntp
 
 ##############################################################################
 
 def listenloop(listensocket):
+    global loglevel
+
     logmessage('begin listen loop')
     
     while True:
-        packet, address = listensocket.recvfrom(MAX_PACKET_SIZE)
-        
-        receiventp = ntptimenowbytes()
-        
-        if loglevel >= 1:
-            showpacket(packet)
+        inpacket, address = listensocket.recvfrom(MAX_PACKET_SIZE)
 
-        lenpacket = len(packet)
+        receivetime = ntptime()
+
+        if loglevel >= 1:
+            showpacket(inpacket)
+
+        leninpacket = len(inpacket)
         
-        if lenpacket == 0:
+        if leninpacket == 0:
             logmessage('packet received but it does not contain any data bytes')
             continue
-            
-        flags = packet[0]
-        
-        leapindicator = (flags & 0xC0) >> 6
-        versionnumber = (flags & 0x38) >> 3
-        mode          = (flags & 0x03) >> 0
+
+        if leninpacket != 48:
+            logmessage('packet not correct length (should be 48 but got {})'.format(leninpacket))
+            continue
+
+        versionnumber = (inpacket[0] & 0x38) >> 3
         
         if (versionnumber != 3) and (versionnumber != 4):
-            logmessage('packet received but version number is not 3 or 4')
+            logmessage('packet version not supported (should be 3 or 4 but got {})'.format(versionnumber))
             continue
+
+        # create empty outpacket
+        outpacket = bytearray(48)
         
-        if lenpacket < MIN_VALID_NTPV3_PACKET_LENGTH:
-            logmessage('packet received but is too short to be a valid NTP packet')
-            continue
-        
-        stratum         = packet[1]
-        pollinterval    = packet[2]
-        clientprecision = packet[3]
-        
-        rootdelaybytes      = packet[4:8]
-        rootdispersionbytes = packet[8:12]
-        referenceidbytes    = packet[12:16]
-        referencetimebytes  = packet[16:24]
-        origintimebytes     = packet[24:32]
-        receivetimebytes    = packet[32:40]
-        transmittimebytes   = packet[40:48]
-        
-        if loglevel >= 1:
-            logmessage('Reference time .....: {}'.format(bytes2int(referencetimebytes[0:4])))
-            logmessage('Origin time ........: {}'.format(bytes2int(origintimebytes[0:4])))
-            logmessage('Receive time .......: {}'.format(bytes2int(receivetimebytes[0:4])))
-            logmessage('Transmit time ......: {}'.format(bytes2int(transmittimebytes[0:4])))
-        
-        fourzeroes = bytearray(4)
-        
-        transmitseconds = bytes2int(transmittimebytes[0:4])
-        
-        utcnow = time.time()
-        
-        ntpsecondsnow = int(math.floor(utcnow)) + 2208988800
-        
-        logmessage('NTP Seconds now: {}'.format(ntpsecondsnow))
-        
-        ntpsecondsnowbytes = int2fourbytes(ntpsecondsnow)
-        
-        logmessage('HEX STRING: {}'.format(bytes2text(ntpsecondsnowbytes)))
-        
-        ntpsecondsnowminus30bytes = int2fourbytes(ntpsecondsnow - 30)
-        
-        response = bytearray(MIN_VALID_NTPV3_PACKET_LENGTH)
-        
+        # set leap indicator (LI), version and mode
         if versionnumber == 3:
-            response[0] = 0x1C
+            # LI = 00, version = 3, mode = 4
+            outpacket[0] = 0x1C
         elif versionnumber == 4:
-            response[0] = 0x24
-        
-        response[1] = 3
-        response[2] = 4
-        response[3] = clientprecision
-        
-        response[4:8]   = rootdelaybytes
-        response[8:12]  = rootdispersionbytes
-        
-        response[12] = 128
-        response[13] = 138
-        response[14] = 141
-        response[15] = 172
-        
-        response[16:24] = receiventp
-        
-        response[18] = response[18] - 1
-        if response[18] == 255:
-            response[17] = response[17] - 1
-            if response[17] == 255:
-                response[16] = response[16] - 1
-        
-        response[24:32] = packet[40:48]
+            # LI = 00, version = 4, mode = 4
+            outpacket[0] = 0x24
 
-        response[32:40] = receiventp
+        # set stratum
+        outpacket[1] = 4
 
-        response[40:48] = ntptimenowbytes()
+        # set poll
+        outpacket[2] = 6
+
+        # set precision
+        outpacket[3] = 256 - 45
+
+        # set root delay
+        outpacket[4] = 0
+        outpacket[5] = 0
+        outpacket[6] = 0
+        outpacket[7] = 0
+
+        # set root dispersion
+        outpacket[8]  = 0
+        outpacket[9]  = 0
+        outpacket[10] = 0
+        outpacket[11] = 0
+
+        # set reference ID to 'Andy'
+        outpacket[12] = ord('A')
+        outpacket[13] = ord('n')
+        outpacket[14] = ord('d')
+        outpacket[15] = ord('y')
+
+        # set reference timestamp to be receive time without the fractional part
+        outpacket[16:20] = receivetime[0:4]
+        outpacket[20]    = 0
+        outpacket[21]    = 0
+        outpacket[22]    = 0
+        outpacket[23]    = 0
+        
+        # copy transmit timestamp from inpacket to originator timestamp in outpacket
+        outpacket[24:32] = inpacket[40:48]
+
+        # set receivetime
+        outpacket[32:40] = receivetime
+
+        # transmit time
+        outpacket[40:48] =  ntptime()
 
         if loglevel >= 1:
-            showpacket(response)
+            showpacket(outpacket)
 
-        ### print(address)
-        
-        listensocket.sendto(response, address)
+        # send the response
+        listensocket.sendto(outpacket, address)
 
 ##############################################################################
 
