@@ -1,6 +1,6 @@
 #! /usr/bin/python3
 #
-# @(!--#) @(#) clanntps.py, sversion 0.1.0, fversion 013, 16-june-2021
+# @(!--#) @(#) clanntps.py, sversion 0.1.0, fversion 014, 15-june-2021
 #
 # a NTP server for closed LANS
 #
@@ -21,12 +21,10 @@
 # imports
 #
 
-
 import sys
 import os
 import argparse
 import time
-import datetime
 import socket
 import syslog
 import math
@@ -37,12 +35,7 @@ import math
 # constants
 #
 
-DEFAULT_LOG_FILE_NAME = 'clanntps.log'
-DEFAULT_LOG_LEVEL = 0
-
 MAX_PACKET_SIZE = 32768
-
-MIN_VALID_NTPV3_PACKET_LENGTH = 48
 
 ##############################################################################
 
@@ -106,8 +99,6 @@ def ntptime():
 ##############################################################################
 
 def listenloop(listensocket):
-    global loglevel
-
     syslog.syslog('begin listen loop')
     
     while True:
@@ -193,7 +184,7 @@ def listenloop(listensocket):
         listensocket.sendto(outpacket, address)
 
         # log the send
-        syslog.syslog('packet sent')
+        syslog.syslog('packet sent - length {} - address {} - port {}'.format(len(outpacket), address[0], address[1]))
         syslog.syslog(bytes2hexstring(outpacket))
 
 ##############################################################################
@@ -235,10 +226,6 @@ def main():
 ##############################################################################
 
 progname = os.path.basename(sys.argv[0])
-
-logfile = None
-
-loglevel = 0
 
 sys.exit(main())
 
