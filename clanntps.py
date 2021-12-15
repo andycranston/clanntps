@@ -1,6 +1,6 @@
 #! /usr/bin/python3
 #
-# @(!--#) @(#) clanntps.py, sversion 0.1.0, fversion 012, 16-june-2021
+# @(!--#) @(#) clanntps.py, sversion 0.1.0, fversion 013, 16-june-2021
 #
 # a NTP server for closed LANS
 #
@@ -28,6 +28,7 @@ import argparse
 import time
 import datetime
 import socket
+import syslog
 import math
 
 ##############################################################################
@@ -43,19 +44,6 @@ MAX_PACKET_SIZE = 32768
 
 MIN_VALID_NTPV3_PACKET_LENGTH = 48
 
-##############################################################################
-
-def logmessage(message):
-    global progname
-    global logfile
-    
-    if logfile != None:
-        timestamp ='{:%Y-%m-%d %H:%M:%S}'.format(datetime.datetime.now())
-        
-        print('{}: {} - {}'.format(progname, timestamp, message), file=logfile)
-        
-        logfile.flush()
-        
 ##############################################################################
 
 def showpacket(bytes):
@@ -132,30 +120,29 @@ def ntptime():
 def listenloop(listensocket):
     global loglevel
 
-    logmessage('begin listen loop')
+    syslog.syslog('begin listen loop')
     
     while True:
         inpacket, address = listensocket.recvfrom(MAX_PACKET_SIZE)
 
         receivetime = ntptime()
 
-        if loglevel >= 1:
-            showpacket(inpacket)
-
         leninpacket = len(inpacket)
+
+        syslog.syslog('packet receive - length {} - address {} - port {}'.format(leninpacket, address[0], address[1]))
         
         if leninpacket == 0:
-            logmessage('packet received but it does not contain any data bytes')
+            syslog.syslog('packet received but it does not contain any data bytes')
             continue
 
         if leninpacket != 48:
-            logmessage('packet not correct length (should be 48 but got {})'.format(leninpacket))
+            syslog.syslog('packet not correct length (should be 48 but got {})'.format(leninpacket))
             continue
 
         versionnumber = (inpacket[0] & 0x38) >> 3
         
         if (versionnumber != 3) and (versionnumber != 4):
-            logmessage('packet version not supported (should be 3 or 4 but got {})'.format(versionnumber))
+            syslog.syslog('packet version not supported (should be 3 or 4 but got {})'.format(versionnumber))
             continue
 
         # create empty outpacket
@@ -212,65 +199,46 @@ def listenloop(listensocket):
         # transmit time
         outpacket[40:48] =  ntptime()
 
-        if loglevel >= 1:
-            showpacket(outpacket)
-
         # send the response
         listensocket.sendto(outpacket, address)
+
+        # log the send
+        syslog.syslog('packet sent')
 
 ##############################################################################
 
 def main():
     global progame
-    global logfile
     
     parser = argparse.ArgumentParser()
     
-    parser.add_argument('--bindip',   help='IP address to bind to', required=True)
-    parser.add_argument('--logfile',  help='log file name', default=DEFAULT_LOG_FILE_NAME)
-    parser.add_argument('--loglevel', help='logging level', default=DEFAULT_LOG_LEVEL)
+    parser.add_argument('--bind', help='IP address to bind to', required=True)
 
     args = parser.parse_args()
 
-    bindip = args.bindip    
-    
-    logfilename = args.logfile
-    
-    try:
-        loglevel = int(args.loglevel)
-    except ValueError:
-        print('{}: argument to --loglevel option must be an integer'.format(progname), file=sys.stderr)
-        sys.exit(1)
+    syslog.openlog(progname, logoption=syslog.LOG_PID, facility=syslog.LOG_LOCAL0)
+
+    syslog.syslog('starting')
         
-    print('{}: bind IP address: {}, log filename: {}, log level: {}'.format(progname, bindip, logfilename, loglevel))
-    
-    try:
-        logfile = open(logfilename, 'a+')
-    except IOError:
-        print('{}: unable to open log file "{}" for writing with append - exiting'.format(progname, logfilename), file=sys.stderr)
-        sys.exit(1)
-    
-    logmessage('starting')
-        
-    logmessage('creating socket')
+    syslog.syslog('creating socket')
+
     listensocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    logmessage('socket created ok')
     
-    logmessage('binding socket to IP {}'.format(bindip))
+    syslog.syslog('binding socket')
+
     try:
-        listensocket.bind((bindip, 123))
+        listensocket.bind((args.bind, 123))
     except IOError:
-        message = 'IOError while trying to bind to IP address {} - is "Windows Time" service running?'.format(bindip)
+        message = 'IOError while trying to bind to IP address {}'.format(args.bindip)
+
+        syslog.syslog(message)
+
         print('{}: {}'.format(progname, message), file=sys.stderr)
-        logmessage(message)
+
         sys.exit(1)
-    logmessage('socket bound ok')
-        
-    logmessage('calling listensocket() function')
+
     listenloop(listensocket)
 
-    ### listensocket.close()
-    
     return 0    
 
 ##############################################################################
