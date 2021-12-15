@@ -4,7 +4,7 @@
 #
 # a NTP server for closed LANS
 #
-# use Ctrl+Break instead of Ctrl^C to interrupt
+# for Linux - dameon with at or nohup
 #
 
 #
@@ -46,27 +46,15 @@ MIN_VALID_NTPV3_PACKET_LENGTH = 48
 
 ##############################################################################
 
-def showpacket(bytes):
-    bpr = 16              # bpr is Bytes Per Row
-    numbytes = len(bytes)
+def bytes2hexstring(bytes):
+    hs = ''
 
-    if numbytes == 0:
-        print("<empty packet>")
-    else:
-        i = 0
-        while i < numbytes:
-            if (i % bpr) == 0:
-                print("{:04d} :".format(i), sep='', end='')
+    for byte in bytes:
+        if hs != '':
+            hs += ':'
+        hs += '{:02X}'.format(byte)
 
-            print(" {:02X}".format(bytes[i]), sep='', end='')
-
-            if ((i + 1) % bpr) == 0:
-                print()
-
-            i = i + 1
-
-    if (numbytes % bpr) != 0:
-        print()
+    return hs
 
 ##############################################################################
 
@@ -134,6 +122,8 @@ def listenloop(listensocket):
         if leninpacket == 0:
             syslog.syslog('packet received but it does not contain any data bytes')
             continue
+
+        syslog.syslog(bytes2hexstring(inpacket))
 
         if leninpacket != 48:
             syslog.syslog('packet not correct length (should be 48 but got {})'.format(leninpacket))
@@ -204,6 +194,7 @@ def listenloop(listensocket):
 
         # log the send
         syslog.syslog('packet sent')
+        syslog.syslog(bytes2hexstring(outpacket))
 
 ##############################################################################
 
