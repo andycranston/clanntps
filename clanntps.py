@@ -1,10 +1,12 @@
 #! /usr/bin/python3
 #
-# @(!--#) @(#) clanntps.py, sversion 0.1.0, fversion 014, 15-june-2021
+# @(!--#) @(#) clanntps.py, sversion 0.2.0, fversion 016, 17-august-2023
 #
 # a NTP server for closed LANS
 #
 # for Linux - dameon with at or nohup
+#
+# added a skew file '/usr/local/etc/clanntps.skew'
 #
 
 #
@@ -36,6 +38,7 @@ import math
 #
 
 MAX_PACKET_SIZE = 32768
+SKEW_FILE_NAME = '/usr/local/etc/clanntps.skew'
 
 ##############################################################################
 
@@ -51,12 +54,14 @@ def bytes2hexstring(bytes):
 
 ##############################################################################
 
-def ntptime():
+def ntptime(skewoffset):
     ntp = bytearray(8)
 
     utc = time.time()
 
     utcint = (int(math.floor(utc)) & 0xFFFFFFFF) + 2208988800
+
+    utcint = utcint + skewoffset
 
     ntp[0] = (utcint & 0xFF000000) >> 24
     ntp[1] = (utcint & 0x00FF0000) >> 16
@@ -98,13 +103,18 @@ def ntptime():
 
 ##############################################################################
 
-def listenloop(listensocket):
+def listenloop(listensocket, skewips):
     syslog.syslog('begin listen loop')
     
     while True:
         inpacket, address = listensocket.recvfrom(MAX_PACKET_SIZE)
 
-        receivetime = ntptime()
+        if address[0] in skewips:
+            skewoffset = skewips[address[0]]
+        else:
+            skewoffset = 0
+
+        receivetime = ntptime(skewoffset)
 
         leninpacket = len(inpacket)
 
@@ -178,7 +188,7 @@ def listenloop(listensocket):
         outpacket[32:40] = receivetime
 
         # transmit time
-        outpacket[40:48] =  ntptime()
+        outpacket[40:48] =  ntptime(skewoffset)
 
         # send the response
         listensocket.sendto(outpacket, address)
@@ -189,12 +199,36 @@ def listenloop(listensocket):
 
 ##############################################################################
 
+def validint(s):
+    if s == '':
+        return False
+
+    if (s[0] == '-') or (s[0] == '+'):
+        s = s[1:]
+
+    if s == '':
+        return False
+
+    for c in s:
+        if not (c.isdigit()):
+            return False
+
+    return True
+
+##############################################################################
+
 def main():
     global progame
     
     parser = argparse.ArgumentParser()
     
-    parser.add_argument('--bind', help='IP address to bind to', required=True)
+    parser.add_argument('--bind',
+                        required=True,
+                        help='IP address to bind to') 
+
+    parser.add_argument('--skew',
+                        default=SKEW_FILE_NAME,
+                        help='name of skew file') 
 
     args = parser.parse_args()
 
@@ -202,6 +236,47 @@ def main():
 
     syslog.syslog('starting')
         
+    skewips = {}
+
+    try:
+        skewfile = open(args.skew, 'r', encoding='utf-8')
+
+        linenum = 0
+
+        for line in skewfile:
+            linenum += 1
+
+            line = line.strip()
+
+            if line == '':
+                continue
+
+            if line[0] == '#':
+                continue
+
+            words = line.split()
+
+            if words[0] == 'skew':
+                if len(words) >= 3:
+                    ipaddress = words[1]
+                    offset = words[2]
+
+                    if not validint(offset):
+                        syslog.syslog('line {} in skew file "{}" has invalid offset of "{}"'.format(linenum, args.skew, offset))
+                        continue
+
+                    offset = int(offset)
+
+                    skewips[ipaddress] = offset
+
+        skewfile.close()
+    except IOError:
+        syslog.syslog('ignoring skew file "{}" as it cannot be opened for reading'.format(args.skew))
+
+    if len(skewips) > 0:
+        for ip in skewips:
+            syslog.syslog('skewing time for IP {} by {} seconds'.format(ip, skewips[ip]))
+
     syslog.syslog('creating socket')
 
     listensocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -219,7 +294,7 @@ def main():
 
         sys.exit(1)
 
-    listenloop(listensocket)
+    listenloop(listensocket, skewips)
 
     return 0    
 
