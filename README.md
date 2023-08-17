@@ -49,6 +49,39 @@ that `skewed` time will be returned to the NTP client.
 
 To skew time forward use a positive integer.
 
+If you want to use a different file to `/usr/local/etc/clanntps.skew` then use the `--skew` command line option as follows:
+
+```
+sudo python3 clanntps.pt --bind 1.2.3.4 --skew myfile.skew
+```
+
+# Exampe systemd service file
+
+This repo contains a file called:
+
+```
+clanntps.service
+```
+
+which is an example systemd service file for Linux systems using systemd.
+
+Edit the file and change the IP address.
+
+Then run commands similar to:
+
+```
+sudo cp clanntps.service /etc/systemd/system/clanntps.service
+cd /etc/systemd/system
+sudo chown root:root clanntps.service
+sudo chmow u=rw,go=r clanntps.service
+sudo systemctl daemon-reload
+sudo systemctl enable clanntps.service
+sudo systemctl start clanntps.service
+```
+
+The `clanntps.py` program logs message to syslog. Check the system to verify the program started successfully.
+
+
 --------------------------------------
 
 End of file
