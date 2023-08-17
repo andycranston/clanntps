@@ -3,7 +3,7 @@ Description=Closed LAN NTP server
 Documentation=https://github.com/andycranston/clanntps
 
 [Service]
-ExecStart=/usr/bin/python3 /usr/local/bin/clanntps.py --bind 10.1.254.6
+ExecStart=/usr/bin/python3 /usr/local/bin/clanntps.py --bind 192.168.1.252
 
 [Install]
 WantedBy=multi-user.target
