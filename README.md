@@ -27,6 +27,28 @@ The `clanntps.py` program is for test/demo environments ONLY!
 
 For production make sure you have a network path to an official NTP time source.
 
+# Time skew feature
+
+It is possible to skew the time for one of more clients by creating a file called:
+
+```
+/usr/local/etc/clanntps.skew
+```
+
+To have the time for the client with IP address 192.168.1.71 run 5 minutes behind add the following line
+to the `/usr/local/etc/clanntps.skew` file:
+
+```
+skew 192.168.1.71 -300
+```
+
+Stop and restart the `clanntps.py` program.
+
+Each time a NTP request comes in from `192.168.1.71` 300 seconds will be subtracted from the actual time and
+that `skewed` time will be returned to the NTP client.
+
+To skew time forward use a positive integer.
+
 --------------------------------------
 
 End of file
